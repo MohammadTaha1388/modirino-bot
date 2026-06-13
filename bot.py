@@ -1,6 +1,7 @@
 import rubika
 import sqlite3
 import time
+from datetime import datetime
 
 # ================= TOKEN =================
 TOKEN = "BFIHAE0AIVMMOWFQRKFNLEACICPBUIZQGPRHLOMYCGZWDMSZASRVSEBFMUSLYUUG"
@@ -39,13 +40,10 @@ CREATE TABLE IF NOT EXISTS warns (
 conn.commit()
 
 # ================= HELPERS =================
-def ensure_group(group_id):
-    cursor.execute("INSERT OR IGNORE INTO settings(group_id) VALUES(?)", (group_id,))
-    conn.commit()
-
 def is_admin(group_id, user_id):
     try:
-        return user_id in bot.get_group_admins(group_id)
+        admins = bot.get_group_admins(group_id)
+        return user_id in admins
     except:
         return False
 
@@ -54,12 +52,15 @@ def get_setting(group_id, key):
     row = cursor.fetchone()
     return row[0] if row else 0
 
-# ================= TRACKERS =================
-spam_tracker = {}
+def ensure_group(group_id):
+    cursor.execute("INSERT OR IGNORE INTO settings(group_id) VALUES(?)", (group_id,))
+    conn.commit()
 
-print("🤖 Bot is running...")
+# ================= MESSAGE LOOP =================
+print("Bot is running...")
 
-# ================= MAIN LOOP =================
+last_msg_time = {}
+
 while True:
     try:
         updates = bot.get_updates()
@@ -68,8 +69,8 @@ while True:
             time.sleep(0.5)
             continue
 
-        for u in updates:
-            msg = u.get("message")
+        for update in updates:
+            msg = update.get("message", None)
             if not msg:
                 continue
 
@@ -86,29 +87,25 @@ while True:
             # ================= COMMANDS =================
 
             if text == "/start":
-                bot.sendMessage(group_id, "⚡ مدیرینو فعال است", message_id)
-
-            elif text == "/help":
                 bot.sendMessage(group_id,
-                    "/mute\n/unmute\n/warn\n/lock\n/unlock",
+                    "⚡ سلام!\nربات مدیرینو فعال است.",
                     message_id
                 )
 
-            elif text == "/admins":
-                try:
-                    admins = bot.get_group_admins(group_id)
-                    bot.sendMessage(group_id, str(admins), message_id)
-                except:
-                    bot.sendMessage(group_id, "خطا", message_id)
+            elif text == "/help":
+                bot.sendMessage(group_id,
+                    "📚 راهنما:\n/mute\n/unmute\n/warn\n/settings",
+                    message_id
+                )
 
-            # ================= MUTE =================
             elif text.startswith("/mute"):
                 if is_admin(group_id, user_id):
-                    reply = msg.get("reply_to_author_object_guid")
+                    reply = msg.get("reply_message_id")
                     if reply:
-                        cursor.execute("INSERT INTO mutes VALUES(?,?)", (reply, group_id))
+                        target = msg.get("reply_to_author_object_guid")
+                        cursor.execute("INSERT INTO mutes VALUES(?,?)", (target, group_id))
                         conn.commit()
-                        bot.sendMessage(group_id, "🔇 mute شد", message_id)
+                        bot.sendMessage(group_id, "🔇 کاربر mute شد", message_id)
 
             elif text.startswith("/unmute"):
                 if is_admin(group_id, user_id):
@@ -116,9 +113,8 @@ while True:
                     cursor.execute("DELETE FROM mutes WHERE user_id=? AND group_id=?",
                                    (reply, group_id))
                     conn.commit()
-                    bot.sendMessage(group_id, "🔊 unmute شد", message_id)
+                    bot.sendMessage(group_id, "🔊 کاربر unmute شد", message_id)
 
-            # ================= WARN =================
             elif text.startswith("/warn"):
                 if is_admin(group_id, user_id):
                     target = msg.get("reply_to_author_object_guid")
@@ -126,7 +122,7 @@ while True:
                     cursor.execute("""
                         INSERT INTO warns VALUES(?,?,1)
                         ON CONFLICT(user_id,group_id)
-                        DO UPDATE SET count = count + 1
+                        DO UPDATE SET count=count+1
                     """, (target, group_id))
                     conn.commit()
 
@@ -139,25 +135,24 @@ while True:
                     if count >= 3:
                         cursor.execute("INSERT INTO mutes VALUES(?,?)", (target, group_id))
                         conn.commit()
-                        bot.sendMessage(group_id, "🚫 کاربر بن شد", message_id)
+                        bot.sendMessage(group_id, "🔇 کاربر بن شد", message_id)
 
             # ================= ANTI SPAM =================
-            key = (group_id, user_id)
             now = time.time()
+            key = (group_id, user_id)
 
-            if key in spam_tracker:
-                if now - spam_tracker[key] < 2:
+            if key in last_msg_time:
+                if now - last_msg_time[key] < 2:
                     try:
                         bot.deleteMessage(group_id, message_id)
                     except:
                         pass
 
-            spam_tracker[key] = now
+            last_msg_time[key] = now
 
             # ================= MUTE CHECK =================
             cursor.execute("SELECT * FROM mutes WHERE user_id=? AND group_id=?",
                            (user_id, group_id))
-
             if cursor.fetchone():
                 try:
                     bot.deleteMessage(group_id, message_id)
