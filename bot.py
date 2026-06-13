@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 
 # ================= TOKEN =================
-TOKEN = "YOUR_NEW_TOKEN"
+TOKEN = "BFIHAE0AIVMMOWFQRKFNLEACICPBUIZQGPRHLOMYCGZWDMSZASRVSEBFMUSLYUUG"
 bot = rubika.Bot(TOKEN)
 
 # ================= DATABASE =================
